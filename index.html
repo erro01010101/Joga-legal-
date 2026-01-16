@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>NEON RUN</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif}
+body{background:#050510;color:#0ff;overflow:hidden}
+canvas{display:block}
+
+#menu,#gameOver{
+  position:absolute;inset:0;
+  background:radial-gradient(circle at top,#0a0a2a,#020208);
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:15px;z-index:10
+}
+
+h1{text-shadow:0 0 15px #0ff;font-size:3rem}
+button{
+  padding:12px 25px;border:none;border-radius:8px;
+  background:linear-gradient(135deg,#0ff,#08f);
+  color:#000;cursor:pointer;
+  box-shadow:0 0 15px #0ff
+}
+input{padding:10px;width:260px;border-radius:6px;border:none}
+#spotifyContainer{display:none}
+#gameOver{display:none;animation:fade .6s}
+@keyframes fade{from{opacity:0;transform:scale(.9)}to{opacity:1}}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="menu">
+  <h1>NEON RUN</h1>
+  <div id="recorde"></div>
+  <input id="musicLink" placeholder="Cole link do Spotify">
+  <button id="musicBtn">Escolher Música</button>
+  <small>(Dê play manualmente no Spotify)</small>
+  <div id="spotifyContainer"></div>
+  <button id="playBtn">Jogar</button>
+</div>
+
+<div id="gameOver">
+  <h1>GAME OVER</h1>
+  <div id="finalScore"></div>
+  <button id="restartBtn">Reiniciar</button>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight}
+addEventListener("resize",resize);resize();
+
+let gameRunning=false,score=0,speed=6,gravity=.8,obstacles=[],lastObs=0,startTime=0;
+let recorde=localStorage.getItem("neonRun")||0;
+recorde=Number(recorde);
+document.getElementById("recorde").innerText="Recorde: "+recorde;
+
+/* ========= CHÃO ========= */
+const groundHeight=90;
+function drawGround(){
+  ctx.fillStyle="#022";
+  ctx.fillRect(0,canvas.height-groundHeight,canvas.width,groundHeight);
+  ctx.strokeStyle="#0ff";
+  for(let i=0;i<canvas.width;i+=40){
+    ctx.beginPath();
+    ctx.moveTo(i,canvas.height-groundHeight);
+    ctx.lineTo(i+20,canvas.height);
+    ctx.stroke();
+  }
+}
+
+/* ========= PLAYER ========= */
+const player={
+ x:120,y:0,size:36,vy:0,onGround:false,
+ update(){
+  this.vy+=gravity;this.y+=this.vy;
+  if(this.y+this.size>=canvas.height-groundHeight){
+    this.y=canvas.height-groundHeight-this.size;
+    this.vy=0;this.onGround=true;
+  }else this.onGround=false;
+ },
+ draw(){
+  ctx.fillStyle="#0ff";
+  ctx.shadowBlur=20;ctx.shadowColor="#0ff";
+  ctx.fillRect(this.x,this.y,this.size,this.size);
+  ctx.shadowBlur=0;
+
+  /* rosto */
+  ctx.fillStyle="#000";
+  ctx.fillRect(this.x+8,this.y+10,5,5);
+  ctx.fillRect(this.x+22,this.y+10,5,5);
+  ctx.beginPath();
+  ctx.arc(this.x+18,this.y+24,6,0,Math.PI);
+  ctx.stroke();
+ },
+ jump(){
+  if(this.onGround){this.vy=-14;playJump()}
+ }
+};
+
+/* ========= OBSTÁCULOS ========= */
+function createObstacle(){
+ const type=Math.floor(Math.random()*4);
+ let obs={x:canvas.width,type};
+ if(type===0){obs.w=35;obs.h=35;obs.y=canvas.height-groundHeight-35}
+ if(type===1){obs.w=40;obs.h=60;obs.y=canvas.height-groundHeight-60}
+ if(type===2){obs.w=30;obs.h=30;obs.y=canvas.height-groundHeight-30;obs.spike=true}
+ if(type===3){obs.w=35;obs.h=35;obs.y=canvas.height-groundHeight-100}
+ obstacles.push(obs);
+}
+
+function drawObstacles(){
+ for(let o of obstacles){
+  o.x-=speed;
+  ctx.shadowBlur=15;ctx.shadowColor="#f0f";
+  ctx.fillStyle="#f0f";
+  ctx.fillRect(o.x,o.y,o.w,o.h);
+  ctx.strokeStyle="#fff3";
+  ctx.strokeRect(o.x,o.y,o.w,o.h);
+ }
+ ctx.shadowBlur=0;
+}
+function checkCollision(){
+ for(let o of obstacles){
+  if(player.x<o.x+o.w&&player.x+player.size>o.x&&
+     player.y<o.y+o.h&&player.y+player.size>o.y){
+       endGame();
+  }
+ }
+}
+
+/* ========= FUNDO ========= */
+let bg=0;
+function drawBG(){
+ bg+=speed*.3;
+ ctx.fillStyle="#050510";
+ ctx.fillRect(0,0,canvas.width,canvas.height);
+ ctx.strokeStyle="#0ff2";
+ for(let i=0;i<canvas.width;i+=60){
+  ctx.beginPath();
+  ctx.moveTo(i-bg%60,0);
+  ctx.lineTo(i-bg%60,canvas.height);
+  ctx.stroke();
+ }
+}
+
+/* ========= SOM ========= */
+const audioCtx=new (window.AudioContext||webkitAudioContext)();
+function playJump(){
+ const o=audioCtx.createOscillator();
+ const g=audioCtx.createGain();
+ o.type="square";o.frequency.value=600;
+ g.gain.value=.07;
+ o.connect(g);g.connect(audioCtx.destination);
+ o.start();o.stop(audioCtx.currentTime+.08);
+}
+
+/* ========= LOOP ========= */
+function loop(t){
+ if(!gameRunning)return;
+ drawBG();drawGround();
+ player.update();player.draw();
+
+ if(t-lastObs>1100-speed*50){createObstacle();lastObs=t}
+ obstacles=obstacles.filter(o=>o.x+o.w>0);
+ drawObstacles();checkCollision();
+
+ score=Math.floor((t-startTime)/100);
+ speed=6+score/200;
+
+ ctx.fillStyle="#0ff";
+ ctx.fillText("Pontuação: "+score,20,30);
+ requestAnimationFrame(loop);
+}
+
+/* ========= CONTROLES ========= */
+addEventListener("keydown",e=>{if(e.code==="Space")player.jump()});
+addEventListener("touchstart",()=>player.jump());
+
+/* ========= START / END ========= */
+function startGame(){
+ obstacles=[];score=0;speed=6;
+ player.y=canvas.height-groundHeight-40;
+ startTime=performance.now();gameRunning=true;
+ document.getElementById("menu").style.display="none";
+ document.getElementById("gameOver").style.display="none";
+ requestAnimationFrame(loop);
+}
+function endGame(){
+ gameRunning=false;
+ document.getElementById("gameOver").style.display="flex";
+ document.getElementById("finalScore").innerText="Pontuação: "+score;
+ if(score>recorde){
+  recorde=score;
+  localStorage.setItem("neonRun",recorde);
+  document.getElementById("recorde").innerText="Recorde: "+recorde;
+ }
+}
+
+/* ========= SPOTIFY ========= */
+document.getElementById("musicBtn").onclick=()=>{
+ const l=document.getElementById("musicLink").value;
+ if(!l)return alert("Cole um link");
+ const e=l.replace("open.spotify.com","open.spotify.com/embed");
+ document.getElementById("spotifyContainer").innerHTML=
+ `<iframe src="${e}" width="300" height="80" allow="encrypted-media"></iframe>`;
+ document.getElementById("spotifyContainer").style.display="block";
+};
+
+playBtn.onclick=startGame;
+restartBtn.onclick=startGame;
+</script>
+</body>
+</html>
